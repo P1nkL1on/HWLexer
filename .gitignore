@@ -4,6 +4,8 @@
 .replit
 *-debug
 replit.nix
+replit.*
+main
 
 # Default C++
 build-*
