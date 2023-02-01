@@ -1,7 +1,7 @@
 # Replit specific
 .ccls-cache/*
-.breakpoints/*
-.replit/*
+.breakpoints
+.replit
 *-debug
 replit.nix
 
