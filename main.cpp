@@ -23,8 +23,11 @@ int tokenize2(std::istream &ss, std::ostream &os_tokens,
   using std::string;
 
   constexpr int n_keywords = 24;
-  constexpr int n_tokens = n_keywords + 1;
+  constexpr int n_tokens = n_keywords + 2;
   constexpr int ind_token_num = n_keywords + 0;
+  constexpr int ind_token_id =  n_keywords + 1;
+  const string token_id_stops = "+=!(){}?:;&|-*/";
+  const auto is_id = [&token_id_stops](const char c) { return token_id_stops.find(c) == string::npos; };
   const array<string, n_keywords> token_strs{
       "+", "+=", "!",    "!=",     "=",  "==",    "(",     ")",
       "{", "}",  "func", "return", "if", "while", "print", "else",
@@ -82,6 +85,18 @@ int tokenize2(std::istream &ss, std::ostream &os_tokens,
         } else
           len_match_num = -1;
       }
+      // inc id if needed
+      {
+        int &len_match_id = token_matches_next[ind_token_id];
+        // can't start from digit
+        // can't contain any of prohobited symbols
+        if (len_match_id >= 0 && is_id(c) && !(len_match_id == 0 && isdigit(c))) {
+          ++len_match_id;
+          if (verbose_level >= 3)
+            cout << "  inc id to " << len_match_id << "\n";
+        } else
+          len_match_id = -1;
+      }
       // if ruined all tokens
       if (-1 == *max_element(token_matches_next.begin(), token_matches_next.end())) {
         --i;
@@ -108,13 +123,9 @@ int tokenize2(std::istream &ss, std::ostream &os_tokens,
         if (token_matches[token_ind] != token_match_best)
           continue;
 
-        const bool is_candidate_keyword =
-            token_strs.size() > token_ind &&
-            token_strs[token_ind].size() <= token_match_best;
-        const bool is_candidate_num =
-            token_ind == ind_token_num;
-
-        if (is_candidate_keyword) {
+        // can be keyword
+        if (token_strs.size() > token_ind &&
+            token_strs[token_ind].size() <= token_match_best) {
           if (verbose_level >= 2)
             cout << "  candidate '" << token_strs[token_ind] << "' with "
                  << token_match_best << " out of "
@@ -126,15 +137,18 @@ int tokenize2(std::istream &ss, std::ostream &os_tokens,
           }
           token_ind_best = token_ind;
         }
-        if (is_candidate_num) {
-          if (verbose_level >= 2)
-            cout << "  candidate number of " << token_match_best << "\n";
-          const bool was_set = token_ind_best != -1;
-          if (was_set) {
-            is_ambigious = true;
-            break;
+        // can be id/num
+        if (token_ind >= n_keywords) {
+          if (verbose_level >= 2) {
+            cout << "  candidate ";
+            if (token_ind == ind_token_num)
+              cout << "number";
+            else if (token_ind == ind_token_id)
+              cout << "id";
+            cout << " of " << token_match_best << "\n";
           }
-          token_ind_best = ind_token_num;
+          if (token_ind_best == -1)
+            token_ind_best = token_ind;
         }
       }
       if (verbose_level >= 1)
@@ -149,15 +163,17 @@ int tokenize2(std::istream &ss, std::ostream &os_tokens,
         os_tokens << token_strs[token_ind_best] << "\n";
         if (verbose_level >= 1)
           cout << " '" << token_strs[token_ind_best] << "'\n";
-      } else if (token_ind_best == ind_token_num) {
+      } else {
         // if rollbacked, then inc pos back to substr
         const bool ruined_all = (-1 == *max_element(token_matches_next.begin(), token_matches_next.end()));
         const int str_end = i + 1 + ruined_all;
         const int str_len = token_match_best;
-        const string str_num = s.substr(str_end - str_len, str_len);
-        os_tokens << str_num << "\n";
-        if (verbose_level >= 1)
-          cout << " number " << str_num << "\n";
+        const string substr = s.substr(str_end - str_len, str_len);
+        os_tokens << substr << "\n";
+        if (token_ind_best == ind_token_num && verbose_level >= 1)
+          cout << " number " << substr << "\n";
+        else if (token_ind_best == ind_token_id && verbose_level >= 1)
+          cout << " id " << substr << "\n";
       }
 
       fill(token_matches.begin(), token_matches.end(), 0);
@@ -243,10 +259,14 @@ int main() {
   run_test("006");
   run_test("007");
   run_test("008");
-  // run_test("009"); // err handling
-  
+  // // run_test("009"); // err handling
+
   run_test("010"); // nums complex
   run_test("011"); // nums w/ spaces
   run_test("012"); // nums w/o spaces
+  run_test("013"); // ids
+  run_test("014"); // ids vs keywords
+  run_test("015"); // ids and nums w/o space
+
   return 0;
 }
