@@ -377,6 +377,138 @@ int run_lexer_test(const std::string &num) {
   return 1;
 }
 
+
+struct Node
+{
+  enum {
+    TOKEN, EXPRESSION,
+  };
+  Node(int ind, int val = TOKEN) : ind_(ind), val_(val) {}
+  virtual ~Node() = default;
+  // TODO: fix it to observer pattern
+  virtual void dump(std::ostream &out) {}
+  bool is_token(int ind) const { return val_ == TOKEN && ind_ == ind; }
+  bool has_type(int val) const { return val_ == val; }
+protected:
+  int ind_ = -1; /// token ind
+  int val_ = TOKEN;
+};
+
+struct NodeExpr : Node
+{
+protected:
+  NodeExpr(int ind) : Node(ind, EXPRESSION) {}
+};
+
+struct NodeNum final : NodeExpr
+{
+  NodeNum(const std::string &str) : NodeExpr(Token::NUMBER), str(str) {}
+  void dump(std::ostream &out) override { out << str; }
+  std::string str;
+};
+
+struct NodePlus final : NodeExpr
+{
+  NodePlus(NodeExpr *left, NodeExpr *right) : NodeExpr(Token::PLUS), left(left), right(right) {}
+  ~NodePlus() override {
+    delete left;
+    delete right;
+  }
+  void dump(std::ostream &out) override {
+    out << "(";
+    left->dump(out);
+    out << ")+(";
+    right->dump(out);
+    out << ")";
+  }
+  NodeExpr *left = nullptr;
+  NodeExpr *right = nullptr;
+};
+
+struct NodeNot final : NodeExpr
+{
+  NodeNot(NodeExpr *expr) : NodeExpr(Token::NOT), expr(expr) {}
+  ~NodeNot() override {
+    delete expr;
+  }
+  void dump(std::ostream &out) override {
+    out << "!(";
+    expr->dump(out);
+    out << ")";
+  }
+  NodeExpr *expr = nullptr;
+};
+
+void parse(TokenStack2 &token_stack) {
+  std::vector<Node *> nodes;
+  const auto node_at = [&nodes](const int ind_neg) -> Node* { 
+    return nodes[nodes.size() + ind_neg]; 
+  };
+
+  while (token_stack.has_next()) {
+    const Token token = token_stack.pop();
+    if (token.err != ERR_NO) {
+      std::cout << "err in token " << token.err << "\n";
+      return;
+    }
+    if (token.ind != Token::NUMBER) {
+      nodes.push_back(new Node(token.ind));
+    } else {
+      nodes.push_back(new NodeNum(token.str));
+    }
+
+    /// check the rules
+    for (;;) {
+      if (nodes.size() >= 3
+          && node_at(-3)->is_token(Token::PARENTHES_OPEN)
+          && node_at(-2)->has_type(Node::EXPRESSION)
+          && node_at(-1)->is_token(Token::PARENTHES_CLOSE)) {
+        Node *expr = node_at(-2);
+        delete node_at(-3);
+        delete node_at(-1);
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.push_back(expr);
+        continue;
+      }
+      // binary ops
+      if (nodes.size() >= 3
+          && node_at(-3)->has_type(Node::EXPRESSION)
+          && node_at(-2)->is_token(Token::PLUS)
+          && node_at(-1)->has_type(Node::EXPRESSION)) {
+        Node *plus = new NodePlus(
+            static_cast<NodeExpr *>(node_at(-3)), 
+            static_cast<NodeExpr *>(node_at(-1)));
+        delete node_at(-2);
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.push_back(plus);
+        continue;
+      }
+      // unary ops
+      if (nodes.size() >= 2
+          && node_at(-2)->is_token(Token::NOT)
+          && node_at(-1)->has_type(Node::EXPRESSION)) {
+        Node *node = new NodeNot(static_cast<NodeExpr *>(node_at(-1)));
+        delete node_at(-2);
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.push_back(node);
+        continue;
+      }
+      break;
+    }
+  }
+  for (Node *node : nodes) {
+    std::cout << "next: ";
+    node->dump(std::cout);
+    std::cout << "\n";
+    delete node;
+  }
+}
+
 int main() {
   run_lexer_test("001");
   run_lexer_test("002");
@@ -395,8 +527,24 @@ int main() {
   run_lexer_test("015"); // ids and nums w/o space
   run_lexer_test("016"); // nums w/ zeros
  
-  TokenStackOutStream stack(std::cout, 10);
-  tokenize_string("1+002+3", stack, 0);
+  TokenStackOutStream out(std::cout, 10);
+  tokenize_string("1+002+3", out, 0);
+
+  {
+    TokenStack2 stack;
+    tokenize_string("1+002+3", stack, 0);
+    parse(stack);
+  }
+  {
+    TokenStack2 stack;
+    tokenize_string("1+(002+3)", stack, 0);
+    parse(stack);
+  }
+  {
+    TokenStack2 stack;
+    tokenize_string("!1+!(002+!!!3)", stack, 0);
+    parse(stack);
+  }
 
   return 0;
 }
