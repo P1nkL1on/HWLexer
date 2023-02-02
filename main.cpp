@@ -12,6 +12,46 @@ enum {
   ERR_FILE_IS_EMPTY,
 };
 
+struct Token
+{
+  std::string str;
+  int col = 0; // aka line pos index + 1
+  int row = 0; // aka line index + 1
+  enum {
+    UNDEFINED = -1,
+    PLUS,
+    ADDITION_ASSIGNMENT,
+    NOT,
+    NOT_EQUALS,
+    ASSGN,
+    EQUALS,
+    PARENTHES_OPEN,
+    PARENTHES_CLOSE,
+    SCOPE_OPEN,
+    SCOPE_CLOSE,
+    FUNC,
+    RETURN,
+    IF,
+    WHILE,
+    PRINT,
+    ELSE,
+    INPUT,
+    COLON,
+    SEMICOLON,
+    AND,
+    MINUS,
+    ASTERISK,
+    SLASH,
+    OR,
+    // ^ add new keywords ^
+    NUMBER,
+    ID,
+    
+    ind_size,
+  };
+  int ind = UNDEFINED;
+};
+
 int tokenize2(std::istream &ss, std::ostream &os_tokens,
               int verbose_level = 0) {
   using std::array;
@@ -259,7 +299,7 @@ int main() {
   run_test("006");
   run_test("007");
   run_test("008");
-  // // run_test("009"); // err handling
+  run_test("009"); 
 
   run_test("010"); // nums complex
   run_test("011"); // nums w/ spaces
