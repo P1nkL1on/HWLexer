@@ -327,6 +327,7 @@ private:
   int pos_ = 0;
 };
 
+// TODO: remove this int
 std::pair<int, std::string> tokenize_test_in(std::string const &filename,
                                              int verbose_level = 0) {
   std::ifstream in;
@@ -340,6 +341,7 @@ std::pair<int, std::string> tokenize_test_in(std::string const &filename,
   return {code, out.str()};
 }
 
+// TODO: remove this int
 std::pair<int, std::string> read_test_out(std::string const &filename) {
   std::ifstream in;
   in.open(filename, std::ios::binary);
@@ -550,7 +552,7 @@ struct NodeNot final : NodeExpr
   NodeExpr *expr = nullptr;
 };
 
-void parse(TokenStack2 &token_stack) {
+void parse(TokenStack2 &token_stack, std::ostream &out) {
   std::vector<Node *> nodes;
   const auto node_at = [&nodes](const int ind_neg) -> Node* { 
     return nodes[nodes.size() + ind_neg]; 
@@ -651,8 +653,8 @@ void parse(TokenStack2 &token_stack) {
   }
   for (Node *node : nodes) {
     if (nodes.size() > 1)
-      std::cout << "NODE:\n";
-    node->dump(std::cout);
+      out << "NODE:\n";
+    node->dump(out);
     delete node;
   }
 }
@@ -675,39 +677,58 @@ int main() {
   run_lexer_test("015"); // ids and nums w/o space
   run_lexer_test("016"); // nums w/ zeros
  
-  TokenStackOutStream out(std::cout, 10);
-  tokenize_string("1+002+3", out, 0);
+  
+  const auto run_parser_test = [](const std::string &num) {
+    const auto file_in =  "parser_tests/in" + num;
+    const auto file_out = "parser_tests/out" + num;
+    std::ifstream in;
+    in.open(file_in, std::ios::binary);
+    if (!in)
+      return "in file missing";
+    TokenStack2 stack;
+    const int code = tokenize2(in, stack, 0);
+    if (code)
+      return "can't tokenize";
+    in.close();
+    std::stringstream out;
+    parse(stack, out);
+    std::string actual = out.str();
+    std::string expect;
+    
+    // read out
+    std::ifstream in2;
+    in2.open(file_out, std::ios::binary);
+    if (!in2)
+      return "out file missing";
+    std::string s;
+    std::stringstream ss;
+    while (std::getline(in2, s)) {
+      ss << s << "\n";
+    }
+    in2.close();
+    expect = ss.str();
+    
+    // compare
+    if (actual == expect) {
+      std::cout << "Test '" << num << "': PASS\n";
+      return "";
+    }
+    std::cout << "Test '" << num << "': FAILED\n";
+    std::cout << "ACTUAL:\n" << actual << "EXPECTED:\n" << expect;
+    return "err";
+  };
+  run_parser_test("001");
+  run_parser_test("002");
+  run_parser_test("003");
+  run_parser_test("004");
+  run_parser_test("005");
 
-  {
-    std::cout << "EX1:\n";
-    TokenStack2 stack;
-    tokenize_string("1+002+3", stack, 0);
-    parse(stack);
-  }
-  {
-    std::cout << "EX2:\n";
-    TokenStack2 stack;
-    tokenize_string("1+(002+3)", stack, 0);
-    parse(stack);
-  }
-  {
-    std::cout << "EX3:\n";
-    TokenStack2 stack;
-    tokenize_string("!1+!(002+!!!3)", stack, 0);
-    parse(stack);
-  }
-  {
-    std::cout << "EX4:\n";
-    TokenStack2 stack;
-    tokenize_string("1+2;3+4;", stack, 0);
-    parse(stack);
-  }
-  {
-    std::cout << "EX5:\n";
-    TokenStack2 stack;
-    tokenize_string("{1+2;3+4;{(5+(6+7));};}", stack, 0);
-    parse(stack);
-  }
+  // {
+  //   std::cout << "EX5:\n";
+  //   TokenStack2 stack;
+  //   tokenize_string("{1+2;3+4;{(5+(6+7));};}", stack, 0);
+  //   parse(stack);
+  // }
 
   return 0;
 }
