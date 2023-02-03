@@ -365,8 +365,8 @@ int run_lexer_test(const std::string &num) {
   const bool verbose = true;
   if (verbose)
     std::cout << "Test '" << num << "': ";
-  const auto in = "in" + num;
-  const auto out = "out" + num;
+  const auto in =  "lexer_tests/in" + num;
+  const auto out = "lexer_tests/out" + num;
   const auto in_res = tokenize_test_in(in);
   const auto out_res = read_test_out(out);
   if (in_res == out_res) {
@@ -550,108 +550,6 @@ struct NodeNot final : NodeExpr
   NodeExpr *expr = nullptr;
 };
 
-
-/*
-
-NodeExpr *parse_expr(TokenStack2 &, int, int &);
-NodeExpr *parse_parenthes(TokenStack2 &, int, int &);
-NodeExpr *parse_plus(TokenStack2 &, int, int &);
-NodeExpr *parse_not(TokenStack2 &, int, int &);
-NodeExpr *parse_num(TokenStack2 &, int, int &);
-
-void parse2(TokenStack2 &token_stack) {
-  std::cout << "  parse2\n";
-  int at = 0;
-  int at_new = 0;
-  NodeExpr *n = parse_expr(token_stack, at, at_new);
-  if (!n) {
-    std::cout << "    n is null\n";
-    return;
-  }
-  n->dump(std::cout);
-}
-
-bool expect(int type, TokenStack2 &token_stack, int at, int &at_new) {
-  if (!token_stack.has_at(at))
-    return false;
-  const bool ok = (token_stack.at(at).ind == type);
-  if (ok) 
-    at_new = at + 1;
-  std::cout << "    ok = " << ok << ", at = " << at << ", type = " << type << "\n";
-  return ok;
-}
-
-NodeExpr *parse_expr(TokenStack2 &token_stack, int at, int &at_new) {
-  std::cout << "  parse_expr at " << at << "\n";
-  int at_new_alt = at;
-  NodeExpr *n = nullptr;
-  if (false
-      || (n = parse_parenthes(token_stack, at, at_new_alt))
-      || (n = parse_plus(token_stack, at, at_new_alt))
-      || (n = parse_not(token_stack, at, at_new_alt))
-      || (n = parse_num(token_stack, at, at_new_alt))
-    ) {
-    at_new = at_new_alt;
-    return n;
-  }
-  delete n;
-  return nullptr;  
-}
-
-NodeExpr *parse_num(TokenStack2 &token_stack, int at, int &at_new) {
-  std::cout << "  parse_num at " << at << "\n";
-  if (!expect(Token::NUMBER, token_stack, at, at))
-    return nullptr;
-
-  at_new = at;
-  return new NodeNum(token_stack.at(at - 1).str);
-}
-
-NodeExpr *parse_plus(TokenStack2 &token_stack, int at, int &at_new) {
-  std::cout << "  parse_plus at " << at << "\n";
-  NodeExpr *left = nullptr;
-  NodeExpr *right = nullptr;
-  if (!(left = parse_expr(token_stack, at, at))
-      || !expect(Token::PLUS, token_stack, at, at)
-      || !(right = parse_expr(token_stack, at, at))) {
-    delete left;
-    delete right;
-    return nullptr;
-  }
-  at_new = at;
-  return new NodePlus(left, right);
-}
-
-NodeExpr *parse_parenthes(TokenStack2 &token_stack, int at, int &at_new) {
-  std::cout << "  parse_parenthes at " << at << "\n";
-  NodeExpr *expr = nullptr;
-  if (!expect(Token::PARENTHES_OPEN, token_stack, at, at)
-      || !(expr = parse_expr(token_stack, at, at))
-      || !expect(Token::PARENTHES_CLOSE, token_stack, at, at)) {
-    std::cout << "  parse_parenthes fails " << at << "\n";
-    delete expr;
-    return nullptr;
-  }
-  at_new = at;
-  return new NodeParenthes(expr);
-}
-
-NodeExpr *parse_not(TokenStack2 &token_stack, int at, int &at_new) {
-  std::cout << "  parse_not at " << at << "\n";
-  NodeExpr *expr = nullptr;
-  if (!expect(Token::NOT, token_stack, at, at)
-      || !(expr = parse_expr(token_stack, at, at))) {
-    delete expr;
-    return nullptr;
-  }
-  at_new = at;
-  return new NodeNot(expr);
-}
-*/
-
-
-
-
 void parse(TokenStack2 &token_stack) {
   std::vector<Node *> nodes;
   const auto node_at = [&nodes](const int ind_neg) -> Node* { 
@@ -807,7 +705,7 @@ int main() {
   {
     std::cout << "EX5:\n";
     TokenStack2 stack;
-    tokenize_string("{1+2;3+4;5+6;}", stack, 0);
+    tokenize_string("{1+2;3+4;{(5+(6+7));};}", stack, 0);
     parse(stack);
   }
 
