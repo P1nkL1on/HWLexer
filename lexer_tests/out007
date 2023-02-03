@@ -1,0 +1,17 @@
+0
+if
+(
+func
++=
+print
+)
+:
+return
+!
+&&
+(
+==
+print
+==
+?
+)
