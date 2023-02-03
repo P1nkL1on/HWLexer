@@ -5,6 +5,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <iomanip>
 
 enum {
   ERR_NO,
@@ -314,6 +315,13 @@ struct TokenStack2 final : TokenStack
     }
     return tokens_[pos_++];
   }
+  // TODO: remove, its for recursive parser
+  inline const Token &at(int ind) const {
+    return tokens_[ind];
+  }
+  inline bool has_at(int ind) const {
+    return tokens_.size() > ind;    
+  }
 private:
   std::vector<Token> tokens_;
   int pos_ = 0;
@@ -381,29 +389,100 @@ int run_lexer_test(const std::string &num) {
 struct Node
 {
   enum {
-    TOKEN, EXPRESSION,
+    TOKEN =      0x000, 
+    EXPRESSION = 0x010,
+    STATEMENT  = 0x100,
   };
   Node(int ind, int val = TOKEN) : ind_(ind), val_(val) {}
   virtual ~Node() = default;
+
+  int dump_depth = 0;
+  static void dump_sep(std::ostream &out, int depth) { out << std::setw(depth * 2) << ""; }  
+  virtual void dump(std::ostream &out) { dump_sep(out, dump_depth); }
+
   // TODO: fix it to observer pattern
-  virtual void dump(std::ostream &out) {}
   bool is_token(int ind) const { return val_ == TOKEN && ind_ == ind; }
-  bool has_type(int val) const { return val_ == val; }
+  bool has_type(int val) const { return val_ & val; }
 protected:
   int ind_ = -1; /// token ind
   int val_ = TOKEN;
+  static const int verbose_level = 1;
+};
+
+struct NodeStatement : Node
+{
+  void dump(std::ostream &out) override {
+    Node::dump(out);
+    if (verbose_level >= 2)
+      std::cout << "stat ";
+  }
+protected:
+  NodeStatement() : Node(-1, STATEMENT) {}
 };
 
 struct NodeExpr : Node
 {
+  void dump(std::ostream &out) override {
+    Node::dump(out);
+    if (verbose_level >= 2)
+      std::cout << "expr ";
+  }
 protected:
   NodeExpr(int ind) : Node(ind, EXPRESSION) {}
+};
+
+// aka 1 statement
+struct NodeSemicolon : NodeStatement
+{
+  NodeSemicolon(NodeExpr *expr) : NodeStatement(), expr(expr) {}
+  ~NodeSemicolon() override {
+    delete expr;
+  }
+  void dump(std::ostream &out) override {
+    if (verbose_level >= 2) {
+      NodeStatement::dump(out);
+      std::cout << "NodeSemicolon\n";
+      expr->dump_depth = dump_depth + 1;
+    } else
+      expr->dump_depth = dump_depth;
+    expr->dump(out);
+  }
+  NodeExpr *expr = nullptr;
+};
+
+// aka statements list
+struct NodeBlock : NodeStatement
+{
+  NodeBlock(NodeStatement *head, NodeStatement *next) : 
+      NodeStatement(), head(head), next(next)
+  {}
+  ~NodeBlock() override {
+    delete head;
+    delete next;
+  }
+  void dump(std::ostream &out) override {
+    if (verbose_level >= 2) {
+      NodeStatement::dump(out);
+      std::cout << "NodeBlock\n";
+    }
+    head->dump_depth = dump_depth;
+    head->dump(out);
+    if (next) {
+      next->dump_depth = dump_depth;
+      next->dump(out);
+    }
+  }
+  NodeStatement *head = nullptr;
+  NodeStatement *next = nullptr;
 };
 
 struct NodeNum final : NodeExpr
 {
   NodeNum(const std::string &str) : NodeExpr(Token::NUMBER), str(str) {}
-  void dump(std::ostream &out) override { out << str; }
+  void dump(std::ostream &out) override { 
+    NodeExpr::dump(out);
+    out << str << "\n"; 
+  }
   std::string str;
 };
 
@@ -415,14 +494,45 @@ struct NodePlus final : NodeExpr
     delete right;
   }
   void dump(std::ostream &out) override {
-    out << "(";
+    NodeExpr::dump(out);
+    out << "+\n";
+    left->dump_depth = dump_depth + 1;
+    right->dump_depth = dump_depth + 1;
     left->dump(out);
-    out << ")+(";
     right->dump(out);
-    out << ")";
   }
   NodeExpr *left = nullptr;
   NodeExpr *right = nullptr;
+};
+
+struct NodeParenthes final : NodeExpr
+{
+  NodeParenthes(NodeExpr *expr) : NodeExpr(Token::PARENTHES_OPEN), expr(expr) {}
+  ~NodeParenthes() override {
+    delete expr;
+  }
+  void dump(std::ostream &out) override {
+    NodeExpr::dump(out);
+    out << "()\n";
+    expr->dump_depth = dump_depth + 1;
+    expr->dump(out);
+  }
+  NodeExpr *expr = nullptr;
+};
+
+struct NodeScope final : NodeExpr
+{
+  NodeScope(NodeStatement *stat) : NodeExpr(Token::SCOPE_OPEN), stat(stat) {}
+  ~NodeScope() override {
+    delete stat;
+  }
+  void dump(std::ostream &out) override {
+    NodeExpr::dump(out);
+    out << "{}\n";
+    stat->dump_depth = dump_depth + 1;
+    stat->dump(out);
+  }
+  NodeStatement *stat = nullptr;
 };
 
 struct NodeNot final : NodeExpr
@@ -432,12 +542,115 @@ struct NodeNot final : NodeExpr
     delete expr;
   }
   void dump(std::ostream &out) override {
-    out << "!(";
+    NodeExpr::dump(out);
+    out << "!\n";
+    expr->dump_depth = dump_depth + 1;
     expr->dump(out);
-    out << ")";
   }
   NodeExpr *expr = nullptr;
 };
+
+
+/*
+
+NodeExpr *parse_expr(TokenStack2 &, int, int &);
+NodeExpr *parse_parenthes(TokenStack2 &, int, int &);
+NodeExpr *parse_plus(TokenStack2 &, int, int &);
+NodeExpr *parse_not(TokenStack2 &, int, int &);
+NodeExpr *parse_num(TokenStack2 &, int, int &);
+
+void parse2(TokenStack2 &token_stack) {
+  std::cout << "  parse2\n";
+  int at = 0;
+  int at_new = 0;
+  NodeExpr *n = parse_expr(token_stack, at, at_new);
+  if (!n) {
+    std::cout << "    n is null\n";
+    return;
+  }
+  n->dump(std::cout);
+}
+
+bool expect(int type, TokenStack2 &token_stack, int at, int &at_new) {
+  if (!token_stack.has_at(at))
+    return false;
+  const bool ok = (token_stack.at(at).ind == type);
+  if (ok) 
+    at_new = at + 1;
+  std::cout << "    ok = " << ok << ", at = " << at << ", type = " << type << "\n";
+  return ok;
+}
+
+NodeExpr *parse_expr(TokenStack2 &token_stack, int at, int &at_new) {
+  std::cout << "  parse_expr at " << at << "\n";
+  int at_new_alt = at;
+  NodeExpr *n = nullptr;
+  if (false
+      || (n = parse_parenthes(token_stack, at, at_new_alt))
+      || (n = parse_plus(token_stack, at, at_new_alt))
+      || (n = parse_not(token_stack, at, at_new_alt))
+      || (n = parse_num(token_stack, at, at_new_alt))
+    ) {
+    at_new = at_new_alt;
+    return n;
+  }
+  delete n;
+  return nullptr;  
+}
+
+NodeExpr *parse_num(TokenStack2 &token_stack, int at, int &at_new) {
+  std::cout << "  parse_num at " << at << "\n";
+  if (!expect(Token::NUMBER, token_stack, at, at))
+    return nullptr;
+
+  at_new = at;
+  return new NodeNum(token_stack.at(at - 1).str);
+}
+
+NodeExpr *parse_plus(TokenStack2 &token_stack, int at, int &at_new) {
+  std::cout << "  parse_plus at " << at << "\n";
+  NodeExpr *left = nullptr;
+  NodeExpr *right = nullptr;
+  if (!(left = parse_expr(token_stack, at, at))
+      || !expect(Token::PLUS, token_stack, at, at)
+      || !(right = parse_expr(token_stack, at, at))) {
+    delete left;
+    delete right;
+    return nullptr;
+  }
+  at_new = at;
+  return new NodePlus(left, right);
+}
+
+NodeExpr *parse_parenthes(TokenStack2 &token_stack, int at, int &at_new) {
+  std::cout << "  parse_parenthes at " << at << "\n";
+  NodeExpr *expr = nullptr;
+  if (!expect(Token::PARENTHES_OPEN, token_stack, at, at)
+      || !(expr = parse_expr(token_stack, at, at))
+      || !expect(Token::PARENTHES_CLOSE, token_stack, at, at)) {
+    std::cout << "  parse_parenthes fails " << at << "\n";
+    delete expr;
+    return nullptr;
+  }
+  at_new = at;
+  return new NodeParenthes(expr);
+}
+
+NodeExpr *parse_not(TokenStack2 &token_stack, int at, int &at_new) {
+  std::cout << "  parse_not at " << at << "\n";
+  NodeExpr *expr = nullptr;
+  if (!expect(Token::NOT, token_stack, at, at)
+      || !(expr = parse_expr(token_stack, at, at))) {
+    delete expr;
+    return nullptr;
+  }
+  at_new = at;
+  return new NodeNot(expr);
+}
+*/
+
+
+
 
 void parse(TokenStack2 &token_stack) {
   std::vector<Node *> nodes;
@@ -459,6 +672,43 @@ void parse(TokenStack2 &token_stack) {
 
     /// check the rules
     for (;;) {
+      // blocks
+      if (nodes.size() >= 3
+          && node_at(-3)->is_token(Token::SCOPE_OPEN)
+          && node_at(-2)->has_type(Node::STATEMENT)
+          && node_at(-1)->is_token(Token::SCOPE_CLOSE)) {
+        Node *node = new NodeScope(
+            static_cast<NodeStatement *>(node_at(-2)));
+        delete node_at(-3);
+        delete node_at(-1);
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.push_back(node);
+        continue;
+      }
+      if (nodes.size() >= 2
+          && node_at(-2)->has_type(Node::STATEMENT)
+          && node_at(-1)->has_type(Node::STATEMENT)) {
+        Node *node = new NodeBlock(
+          static_cast<NodeStatement *>(node_at(-2)),
+          static_cast<NodeStatement *>(node_at(-1)));        
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.push_back(node);
+        continue;
+      }
+      if (nodes.size() >= 2
+          && node_at(-2)->has_type(Node::EXPRESSION)
+          && node_at(-1)->is_token(Token::SEMICOLON)) {
+        Node *node = new NodeSemicolon(static_cast<NodeExpr *>(node_at(-2)));
+        delete node_at(-1);
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.push_back(node);
+        continue;
+      }
+      // parens
       if (nodes.size() >= 3
           && node_at(-3)->is_token(Token::PARENTHES_OPEN)
           && node_at(-2)->has_type(Node::EXPRESSION)
@@ -502,9 +752,9 @@ void parse(TokenStack2 &token_stack) {
     }
   }
   for (Node *node : nodes) {
-    std::cout << "next: ";
+    if (nodes.size() > 1)
+      std::cout << "NODE:\n";
     node->dump(std::cout);
-    std::cout << "\n";
     delete node;
   }
 }
@@ -531,18 +781,33 @@ int main() {
   tokenize_string("1+002+3", out, 0);
 
   {
+    std::cout << "EX1:\n";
     TokenStack2 stack;
     tokenize_string("1+002+3", stack, 0);
     parse(stack);
   }
   {
+    std::cout << "EX2:\n";
     TokenStack2 stack;
     tokenize_string("1+(002+3)", stack, 0);
     parse(stack);
   }
   {
+    std::cout << "EX3:\n";
     TokenStack2 stack;
     tokenize_string("!1+!(002+!!!3)", stack, 0);
+    parse(stack);
+  }
+  {
+    std::cout << "EX4:\n";
+    TokenStack2 stack;
+    tokenize_string("1+2;3+4;", stack, 0);
+    parse(stack);
+  }
+  {
+    std::cout << "EX5:\n";
+    TokenStack2 stack;
+    tokenize_string("{1+2;3+4;5+6;}", stack, 0);
     parse(stack);
   }
 
