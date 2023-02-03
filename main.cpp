@@ -408,7 +408,7 @@ struct Node
 protected:
   int ind_ = -1; /// token ind
   int val_ = TOKEN;
-  static const int verbose_level = 1;
+  static const int verbose_level = 0;
 };
 
 struct NodeStatement : Node
@@ -476,6 +476,36 @@ struct NodeBlock : NodeStatement
   }
   NodeStatement *head = nullptr;
   NodeStatement *next = nullptr;
+};
+
+struct NodeWhile : NodeStatement
+{
+  NodeWhile(NodeExpr *cond, NodeStatement *next) : 
+      NodeStatement(), cond(cond), body(body)
+  {}
+  ~NodeWhile() override {
+    delete cond;
+    delete body;
+  }
+  void dump(std::ostream &out) override {
+    NodeStatement::dump(out);
+    out << "while\n";
+
+    if (verbose_level >= 2) {
+      NodeStatement::dump(out);
+      out << "while condition:\n";
+    }
+    cond->dump_depth = dump_depth + 1;
+    cond->dump(out);
+    if (verbose_level >= 2) {
+      NodeStatement::dump(out);
+      out << "while body:\n";
+    }
+    body->dump_depth = dump_depth + 1;
+    body->dump(out);
+  }
+  NodeExpr *cond = nullptr;
+  NodeStatement *body = nullptr;
 };
 
 struct NodeNum final : NodeExpr
@@ -572,6 +602,33 @@ void parse(TokenStack2 &token_stack, std::ostream &out) {
 
     /// check the rules
     for (;;) {
+      // while (expr) {statement}
+      if (nodes.size() >= 7
+          && node_at(-7)->is_token(Token::WHILE)
+          && node_at(-6)->is_token(Token::PARENTHES_OPEN)
+          && node_at(-5)->has_type(Node::EXPRESSION)
+          && node_at(-4)->is_token(Token::PARENTHES_CLOSE)
+          && node_at(-3)->is_token(Token::SCOPE_OPEN)
+          && node_at(-2)->has_type(Node::STATEMENT)
+          && node_at(-1)->is_token(Token::SCOPE_CLOSE)) {
+        Node *node = new NodeWhile(
+            static_cast<NodeExpr *>(node_at(-5)),
+            static_cast<NodeStatement *>(node_at(-2)));
+        delete node_at(-7);
+        delete node_at(-6);
+        delete node_at(-4);
+        delete node_at(-3);
+        delete node_at(-1);
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.push_back(node);
+        continue;
+      }
       // blocks
       if (nodes.size() >= 3
           && node_at(-3)->is_token(Token::SCOPE_OPEN)
@@ -613,13 +670,14 @@ void parse(TokenStack2 &token_stack, std::ostream &out) {
           && node_at(-3)->is_token(Token::PARENTHES_OPEN)
           && node_at(-2)->has_type(Node::EXPRESSION)
           && node_at(-1)->is_token(Token::PARENTHES_CLOSE)) {
-        Node *expr = node_at(-2);
+        Node *node = new NodeParenthes(
+            static_cast<NodeExpr *>(node_at(-2)));
         delete node_at(-3);
         delete node_at(-1);
         nodes.pop_back();
         nodes.pop_back();
         nodes.pop_back();
-        nodes.push_back(expr);
+        nodes.push_back(node);
         continue;
       }
       // binary ops
@@ -723,12 +781,12 @@ int main() {
   run_parser_test("004");
   run_parser_test("005");
 
-  // {
-  //   std::cout << "EX5:\n";
-  //   TokenStack2 stack;
-  //   tokenize_string("{1+2;3+4;{(5+(6+7));};}", stack, 0);
-  //   parse(stack);
-  // }
+  {
+    std::cout << "EX5:\n";
+    TokenStack2 stack;
+    tokenize_string("while (1){2;}", stack);
+    parse(stack, std::cout);
+  }
 
   return 0;
 }
