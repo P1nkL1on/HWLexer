@@ -413,7 +413,7 @@ protected:
 struct NodeBinOp;
 struct NodeBlock;
 struct NodeSemicolon;
-struct NodeNot;
+struct NodeUnOp;
 struct NodeNum;
 struct NodeScope;
 struct NodeParenthes;
@@ -423,9 +423,9 @@ struct INodeVisitor
 {
   virtual ~INodeVisitor() = default;
   virtual void visit(NodeBinOp const&) = 0;
+  virtual void visit(NodeUnOp const&) = 0;
   virtual void visit(NodeBlock const&) = 0;
   virtual void visit(NodeSemicolon const&) = 0;
-  virtual void visit(NodeNot const&) = 0;
   virtual void visit(NodeNum const&) = 0;
   virtual void visit(NodeScope const&) = 0;
   virtual void visit(NodeParenthes const&) = 0;
@@ -501,10 +501,26 @@ struct NodeBinOp : NodeExpr
   NodeExpr *right = nullptr;
 };
 
+struct NodeUnOp : NodeExpr
+{
+  NodeUnOp(int ind, int priority, NodeExpr *expr) :
+    NodeExpr(ind), priority(priority), expr(expr)
+  {}
+  ~NodeUnOp() override {
+    delete expr;
+  }
+  void accept(INodeVisitor &v) const override {
+    v.visit(*this);
+  }
+  int priority = 0;
+  NodeExpr *expr = nullptr;
+};
+
 enum {
   PRIORITY_PLUS  = 1,
   PRIORITY_MINUS = PRIORITY_PLUS,
   PRIORITY_MULT  = 2,
+  PRIORITY_NOT   = 3,
 };
 
 struct NodePlus final : NodeBinOp
@@ -526,6 +542,11 @@ struct NodeMult final : NodeBinOp
   NodeMult(NodeExpr *left, NodeExpr *right) :
     NodeBinOp(Token::ASTERISK, PRIORITY_MULT, left, right)
   {}
+};
+
+struct NodeNot final : NodeUnOp
+{
+  NodeNot(NodeExpr *expr) : NodeUnOp(Token::NOT, PRIORITY_NOT, expr) {}
 };
 
 struct NodeParenthes final : NodeExpr
@@ -568,18 +589,6 @@ struct NodeWhile : NodeStatement
   NodeScope *body = nullptr;
 };
 
-struct NodeNot final : NodeExpr
-{
-  NodeNot(NodeExpr *expr) : NodeExpr(Token::NOT), expr(expr) {}
-  ~NodeNot() override {
-    delete expr;
-  }
-  void accept(INodeVisitor &v) const override {
-    v.visit(*this);
-  }
-  NodeExpr *expr = nullptr;
-};
-
 struct NodeVisitorOut : INodeVisitor
 {
   NodeVisitorOut(std::ostream &out, bool is_debug_verbose = false) :
@@ -596,9 +605,20 @@ struct NodeVisitorOut : INodeVisitor
   void visit(NodeBinOp const& n) override {
     dump_offset();
     inc_offset();
+    if (is_debug_verbose)
+      out << "binop ";
     out << token_strs[n.ind_] << "\n";
     n.left->accept(*this);
     n.right->accept(*this);
+    dec_offset();
+  }
+  void visit(NodeUnOp const& n) override {
+    dump_offset();
+    inc_offset();
+    if (is_debug_verbose)
+      out << "unop ";
+    out << token_strs[n.ind_] << "\n";
+    n.expr->accept(*this);
     dec_offset();
   }
   void visit(NodeBlock const& n) override {
@@ -616,13 +636,6 @@ struct NodeVisitorOut : INodeVisitor
       out << "statement\n";
     }
     n.expr->accept(*this);
-  }
-  void visit(NodeNot const& n) override {
-    dump_offset();
-    inc_offset();
-    out << "!\n";
-    n.expr->accept(*this);
-    dec_offset();
   }
   void visit(NodeNum const& n) override {
     dump_offset();
@@ -654,7 +667,7 @@ struct NodeVisitorOut : INodeVisitor
   }
 };
 
-void parse(TokenStack2 &token_stack, std::ostream &out) {
+void parse(TokenStack2 &token_stack, INodeVisitor &visitor) {
   std::vector<Node *> nodes;
   const auto node_at = [&nodes](const int ind_neg) -> Node* {
     return nodes[nodes.size() + ind_neg];
@@ -803,9 +816,6 @@ void parse(TokenStack2 &token_stack, std::ostream &out) {
     }
   }
   for (Node *node : nodes) {
-    if (nodes.size() > 1)
-      out << "NODE:\n";
-    NodeVisitorOut visitor(out);
     node->accept(visitor);
     delete node;
   }
@@ -848,7 +858,8 @@ int main() {
     }
     in.close();
     std::stringstream out;
-    parse(stack, out);
+    NodeVisitorOut visitor(out);
+    parse(stack, visitor);
     std::string actual = out.str();
     std::string expect;
     
@@ -891,8 +902,9 @@ int main() {
   {
     std::cout << "SAMPLE:\n";
     TokenStack2 stack;
-    tokenize_string("1+2+3", stack);
-    parse(stack, std::cout);
+    tokenize_string("1+!2+3", stack);
+    NodeVisitorOut visitor(std::cout, true);
+    parse(stack, visitor);
   }
 
   return 0;
