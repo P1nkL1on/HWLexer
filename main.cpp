@@ -391,9 +391,11 @@ int run_lexer_test(const std::string &num) {
 struct Node
 {
   enum {
-    TOKEN =      0x000, 
-    EXPRESSION = 0x010,
-    STATEMENT  = 0x100,
+    TOKEN =      0, 
+    EXPRESSION = 1 << 0,
+    PARENTHES =  1 << 1 | EXPRESSION,
+    SCOPE =      1 << 2 | EXPRESSION,
+    STATEMENT  = 1 << 3,
   };
   Node(int ind, int val = TOKEN) : ind_(ind), val_(val) {}
   virtual ~Node() = default;
@@ -430,7 +432,7 @@ struct NodeExpr : Node
       std::cout << "expr ";
   }
 protected:
-  NodeExpr(int ind) : Node(ind, EXPRESSION) {}
+  NodeExpr(int ind, int val = EXPRESSION) : Node(ind, val) {}
 };
 
 // aka 1 statement
@@ -478,36 +480,6 @@ struct NodeBlock : NodeStatement
   NodeStatement *next = nullptr;
 };
 
-struct NodeWhile : NodeStatement
-{
-  NodeWhile(NodeExpr *cond, NodeStatement *next) : 
-      NodeStatement(), cond(cond), body(body)
-  {}
-  ~NodeWhile() override {
-    delete cond;
-    delete body;
-  }
-  void dump(std::ostream &out) override {
-    NodeStatement::dump(out);
-    out << "while\n";
-
-    if (verbose_level >= 2) {
-      NodeStatement::dump(out);
-      out << "while condition:\n";
-    }
-    cond->dump_depth = dump_depth + 1;
-    cond->dump(out);
-    if (verbose_level >= 2) {
-      NodeStatement::dump(out);
-      out << "while body:\n";
-    }
-    body->dump_depth = dump_depth + 1;
-    body->dump(out);
-  }
-  NodeExpr *cond = nullptr;
-  NodeStatement *body = nullptr;
-};
-
 struct NodeNum final : NodeExpr
 {
   NodeNum(const std::string &str) : NodeExpr(Token::NUMBER), str(str) {}
@@ -539,7 +511,7 @@ struct NodePlus final : NodeExpr
 
 struct NodeParenthes final : NodeExpr
 {
-  NodeParenthes(NodeExpr *expr) : NodeExpr(Token::PARENTHES_OPEN), expr(expr) {}
+  NodeParenthes(NodeExpr *expr) : NodeExpr(-1, Node::PARENTHES), expr(expr) {}
   ~NodeParenthes() override {
     delete expr;
   }
@@ -554,9 +526,9 @@ struct NodeParenthes final : NodeExpr
 
 struct NodeScope final : NodeExpr
 {
-  NodeScope(NodeStatement *stat) : NodeExpr(Token::SCOPE_OPEN), stat(stat) {}
+  NodeScope(NodeStatement *stat) : NodeExpr(-1, Node::SCOPE), stat(stat) {}
   ~NodeScope() override {
-    delete stat;
+    // delete stat;
   }
   void dump(std::ostream &out) override {
     NodeExpr::dump(out);
@@ -565,6 +537,36 @@ struct NodeScope final : NodeExpr
     stat->dump(out);
   }
   NodeStatement *stat = nullptr;
+};
+
+struct NodeWhile : NodeStatement
+{
+  NodeWhile(NodeParenthes *cond, NodeScope *body) : 
+      NodeStatement(), cond(cond), body(body)
+  {}
+  ~NodeWhile() override {
+    delete cond;
+    delete body;
+  }
+  void dump(std::ostream &out) override {
+    NodeStatement::dump(out);
+    out << "while\n";
+
+    if (verbose_level >= 2) {
+      NodeStatement::dump(out);
+      out << "while condition:\n";
+    }
+    cond->dump_depth = dump_depth + 1;
+    cond->dump(out);
+    if (verbose_level >= 2) {
+      NodeStatement::dump(out);
+      out << "while body:\n";
+    }
+    body->dump_depth = dump_depth + 1;
+    body->dump(out);
+  }
+  NodeParenthes *cond = nullptr;
+  NodeScope *body = nullptr;
 };
 
 struct NodeNot final : NodeExpr
@@ -603,26 +605,14 @@ void parse(TokenStack2 &token_stack, std::ostream &out) {
     /// check the rules
     for (;;) {
       // while (expr) {statement}
-      if (nodes.size() >= 7
-          && node_at(-7)->is_token(Token::WHILE)
-          && node_at(-6)->is_token(Token::PARENTHES_OPEN)
-          && node_at(-5)->has_type(Node::EXPRESSION)
-          && node_at(-4)->is_token(Token::PARENTHES_CLOSE)
-          && node_at(-3)->is_token(Token::SCOPE_OPEN)
-          && node_at(-2)->has_type(Node::STATEMENT)
-          && node_at(-1)->is_token(Token::SCOPE_CLOSE)) {
+      if (nodes.size() >= 3
+          && node_at(-3)->is_token(Token::WHILE)
+          && node_at(-2)->has_type(Node::PARENTHES)
+          && node_at(-1)->has_type(Node::SCOPE)) {
         Node *node = new NodeWhile(
-            static_cast<NodeExpr *>(node_at(-5)),
-            static_cast<NodeStatement *>(node_at(-2)));
-        delete node_at(-7);
-        delete node_at(-6);
-        delete node_at(-4);
+            static_cast<NodeParenthes *>(node_at(-2)),
+            static_cast<NodeScope *>(node_at(-1)));
         delete node_at(-3);
-        delete node_at(-1);
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.pop_back();
         nodes.pop_back();
         nodes.pop_back();
         nodes.pop_back();
@@ -784,7 +774,7 @@ int main() {
   {
     std::cout << "EX5:\n";
     TokenStack2 stack;
-    tokenize_string("while (1){2;}", stack);
+    tokenize_string("while (1+2){2+3;}", stack);
     parse(stack, std::cout);
   }
 
