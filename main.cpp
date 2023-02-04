@@ -387,6 +387,7 @@ int run_lexer_test(const std::string &num) {
   return 1;
 }
 
+struct INodeVisitor;
 
 struct Node
 {
@@ -399,41 +400,50 @@ struct Node
   };
   Node(int ind, int val = TOKEN) : ind_(ind), val_(val) {}
   virtual ~Node() = default;
+  virtual void accept(INodeVisitor &) const {}
 
-  int dump_depth = 0;
-  static void dump_sep(std::ostream &out, int depth) { out << std::setw(depth * 2) << ""; }
-  virtual void dump(std::ostream &out) { dump_sep(out, dump_depth); }
-
-  // TODO: fix it to observer pattern
   bool is_token(int ind) const { return val_ == TOKEN && ind_ == ind; }
   bool has_type(int val) const { return val_ & val; }
-protected:
   int ind_ = -1; /// token ind
+protected:
   int val_ = TOKEN;
-  static const int verbose_level = 0;
+};
+
+
+struct NodeBinOp;
+struct NodeBlock;
+struct NodeSemicolon;
+struct NodeNot;
+struct NodeNum;
+struct NodeScope;
+struct NodeParenthes;
+struct NodeWhile;
+
+struct INodeVisitor
+{
+  virtual ~INodeVisitor() = default;
+  virtual void visit(NodeBinOp const&) = 0;
+  virtual void visit(NodeBlock const&) = 0;
+  virtual void visit(NodeSemicolon const&) = 0;
+  virtual void visit(NodeNot const&) = 0;
+  virtual void visit(NodeNum const&) = 0;
+  virtual void visit(NodeScope const&) = 0;
+  virtual void visit(NodeParenthes const&) = 0;
+  virtual void visit(NodeWhile const&) = 0;
 };
 
 struct NodeStatement : Node
 {
-  void dump(std::ostream &out) override {
-    Node::dump(out);
-    if (verbose_level >= 2)
-      std::cout << "stat ";
-  }
 protected:
   NodeStatement() : Node(-1, STATEMENT) {}
 };
 
 struct NodeExpr : Node
 {
-  void dump(std::ostream &out) override {
-    Node::dump(out);
-    if (verbose_level >= 2)
-      std::cout << "expr ";
-  }
 protected:
   NodeExpr(int ind, int val = EXPRESSION) : Node(ind, val) {}
 };
+
 
 // aka 1 statement
 struct NodeSemicolon : NodeStatement
@@ -442,14 +452,8 @@ struct NodeSemicolon : NodeStatement
   ~NodeSemicolon() override {
     delete expr;
   }
-  void dump(std::ostream &out) override {
-    if (verbose_level >= 2) {
-      NodeStatement::dump(out);
-      std::cout << "NodeSemicolon\n";
-      expr->dump_depth = dump_depth + 1;
-    } else
-      expr->dump_depth = dump_depth;
-    expr->dump(out);
+  void accept(INodeVisitor &v) const override {
+    v.visit(*this);
   }
   NodeExpr *expr = nullptr;
 };
@@ -464,17 +468,8 @@ struct NodeBlock : NodeStatement
     delete head;
     delete next;
   }
-  void dump(std::ostream &out) override {
-    if (verbose_level >= 2) {
-      NodeStatement::dump(out);
-      std::cout << "NodeBlock\n";
-    }
-    head->dump_depth = dump_depth;
-    head->dump(out);
-    if (next) {
-      next->dump_depth = dump_depth;
-      next->dump(out);
-    }
+  void accept(INodeVisitor &v) const override {
+    v.visit(*this);
   }
   NodeStatement *head = nullptr;
   NodeStatement *next = nullptr;
@@ -483,9 +478,8 @@ struct NodeBlock : NodeStatement
 struct NodeNum final : NodeExpr
 {
   NodeNum(const std::string &str) : NodeExpr(Token::NUMBER), str(str) {}
-  void dump(std::ostream &out) override {
-    NodeExpr::dump(out);
-    out << str << "\n";
+  void accept(INodeVisitor &v) const override {
+    v.visit(*this);
   }
   std::string str;
 };
@@ -499,13 +493,8 @@ struct NodeBinOp : NodeExpr
     delete left;
     delete right;
   }
-  void dump(std::ostream &out) override {
-    NodeExpr::dump(out);
-    out << token_strs[ind_] << "\n";
-    left->dump_depth = dump_depth + 1;
-    right->dump_depth = dump_depth + 1;
-    left->dump(out);
-    right->dump(out);
+  void accept(INodeVisitor &v) const override {
+    v.visit(*this);
   }
   int priority = 0;
   NodeExpr *left = nullptr;
@@ -545,11 +534,8 @@ struct NodeParenthes final : NodeExpr
   ~NodeParenthes() override {
     delete expr;
   }
-  void dump(std::ostream &out) override {
-    NodeExpr::dump(out);
-    out << "()\n";
-    expr->dump_depth = dump_depth + 1;
-    expr->dump(out);
+  void accept(INodeVisitor &v) const override {
+    v.visit(*this);
   }
   NodeExpr *expr = nullptr;
 };
@@ -558,13 +544,10 @@ struct NodeScope final : NodeExpr
 {
   NodeScope(NodeStatement *stat) : NodeExpr(-1, Node::SCOPE), stat(stat) {}
   ~NodeScope() override {
-    // delete stat;
+    delete stat;
   }
-  void dump(std::ostream &out) override {
-    NodeExpr::dump(out);
-    out << "{}\n";
-    stat->dump_depth = dump_depth + 1;
-    stat->dump(out);
+  void accept(INodeVisitor &v) const override {
+    v.visit(*this);
   }
   NodeStatement *stat = nullptr;
 };
@@ -578,22 +561,8 @@ struct NodeWhile : NodeStatement
     delete cond;
     delete body;
   }
-  void dump(std::ostream &out) override {
-    NodeStatement::dump(out);
-    out << "while\n";
-
-    if (verbose_level >= 2) {
-      NodeStatement::dump(out);
-      out << "while condition:\n";
-    }
-    cond->dump_depth = dump_depth + 1;
-    cond->dump(out);
-    if (verbose_level >= 2) {
-      NodeStatement::dump(out);
-      out << "while body:\n";
-    }
-    body->dump_depth = dump_depth + 1;
-    body->dump(out);
+  void accept(INodeVisitor &v) const override {
+    v.visit(*this);
   }
   NodeParenthes *cond = nullptr;
   NodeScope *body = nullptr;
@@ -605,13 +574,84 @@ struct NodeNot final : NodeExpr
   ~NodeNot() override {
     delete expr;
   }
-  void dump(std::ostream &out) override {
-    NodeExpr::dump(out);
-    out << "!\n";
-    expr->dump_depth = dump_depth + 1;
-    expr->dump(out);
+  void accept(INodeVisitor &v) const override {
+    v.visit(*this);
   }
   NodeExpr *expr = nullptr;
+};
+
+struct NodeVisitorOut : INodeVisitor
+{
+  NodeVisitorOut(std::ostream &out, bool is_debug_verbose = false) :
+    out(out), is_debug_verbose(is_debug_verbose)
+  {}
+  std::ostream &out;
+  bool is_debug_verbose;
+  int offset_ = 0;
+
+  void inc_offset() {++offset_;}
+  void dec_offset() {--offset_;}
+  void dump_offset() const { out << std::setw(offset_ * 2) << ""; }
+
+  void visit(NodeBinOp const& n) override {
+    dump_offset();
+    inc_offset();
+    out << token_strs[n.ind_] << "\n";
+    n.left->accept(*this);
+    n.right->accept(*this);
+    dec_offset();
+  }
+  void visit(NodeBlock const& n) override {
+    if (is_debug_verbose) {
+      dump_offset();
+      out << "statements block\n";
+    }
+    n.head->accept(*this);
+    if (n.next)
+      n.next->accept(*this);
+  }
+  void visit(NodeSemicolon const& n) override {
+    if (is_debug_verbose) {
+      dump_offset();
+      out << "statement\n";
+    }
+    n.expr->accept(*this);
+  }
+  void visit(NodeNot const& n) override {
+    dump_offset();
+    inc_offset();
+    out << "!\n";
+    n.expr->accept(*this);
+    dec_offset();
+  }
+  void visit(NodeNum const& n) override {
+    dump_offset();
+    inc_offset();
+    out << n.str << "\n";
+    dec_offset();
+  }
+  void visit(NodeScope const& n) override {
+    dump_offset();
+    inc_offset();
+    out << "{}\n";
+    n.stat->accept(*this);
+    dec_offset();
+  }
+  void visit(NodeParenthes const& n) override {
+    dump_offset();
+    inc_offset();
+    out << "()\n";
+    n.expr->accept(*this);
+    dec_offset();
+  }
+  void visit(NodeWhile const& n) override {
+    dump_offset();
+    inc_offset();
+    out << "while\n";
+    n.cond->accept(*this);
+    n.body->accept(*this);
+    dec_offset();
+  }
 };
 
 void parse(TokenStack2 &token_stack, std::ostream &out) {
@@ -714,7 +754,7 @@ void parse(TokenStack2 &token_stack, std::ostream &out) {
           auto *left_expr_as_binop = dynamic_cast<NodeBinOp *>(left_expr);
           if (!left_expr_as_binop)
             break;
-          if (left_expr_as_binop->priority > binop->priority)
+          if (left_expr_as_binop->priority >= binop->priority)
             break;
           parent_new = left_expr_as_binop;
           left_expr = left_expr_as_binop->right;
@@ -765,7 +805,8 @@ void parse(TokenStack2 &token_stack, std::ostream &out) {
   for (Node *node : nodes) {
     if (nodes.size() > 1)
       out << "NODE:\n";
-    node->dump(out);
+    NodeVisitorOut visitor(out);
+    node->accept(visitor);
     delete node;
   }
 }
@@ -845,11 +886,12 @@ int main() {
   run_parser_test("008");
   run_parser_test("008");
   run_parser_test("009");
+  run_parser_test("010");
 
   {
-    std::cout << "EX7:\n";
+    std::cout << "SAMPLE:\n";
     TokenStack2 stack;
-    tokenize_string("1+2+3*4", stack);
+    tokenize_string("1+2+3", stack);
     parse(stack, std::cout);
   }
 
