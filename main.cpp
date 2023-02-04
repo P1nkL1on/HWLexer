@@ -17,16 +17,16 @@ enum {
 
 constexpr int n_keywords = 24;
 const std::array<std::string, n_keywords> token_strs{
-    "+", "+=", "!",    "!=",     "=",  "==",    "(",     ")",
-    "{", "}",  "func", "return", "if", "while", "print", "else",
-    "?", ":",  ";",    "&&",     "-",  "*",     "/",     "||",
+  "+", "+=", "!",    "!=",     "=",  "==",    "(",     ")",
+  "{", "}",  "func", "return", "if", "while", "print", "else",
+  "?", ":",  ";",    "&&",     "-",  "*",     "/",     "||",
 };
 constexpr int n_tokens = n_keywords + 2;
 constexpr int ind_token_num = n_keywords + 0;
 constexpr int ind_token_id =  n_keywords + 1;
 const std::string token_id_stops = "+=!(){}?:;&|-*/";
 inline bool is_id(const char c) { 
-  return token_id_stops.find(c) == std::string::npos; 
+  return token_id_stops.find(c) == std::string::npos;
 };
 
 struct Token
@@ -158,13 +158,13 @@ int tokenize2(std::istream &ss, TokenStack &token_stack,
       if (-1 == *max_element(token_matches_next.begin(), token_matches_next.end())) {
         --i;
         if (verbose_level >= 3)
-            cout << "  moved pos in line " << i << " -> " << (i - 1) << "\n";
+          cout << "  moved pos in line " << i << " -> " << (i - 1) << "\n";
         goto define_token;
       }
 
       token_matches = token_matches_next;
       continue;
-    define_token:
+define_token:
       if (!has_any_token) {
         t = -1;
         continue; // skip if prev was space anyway
@@ -257,7 +257,7 @@ int tokenize_string(std::string const &str, TokenStack &token_stack, int verbose
 
 struct TokenStackOutStream final : TokenStack
 {
-  TokenStackOutStream(std::ostream &out, int verbose_level = 0) : 
+  TokenStackOutStream(std::ostream &out, int verbose_level = 0) :
     out_(out), verbose_level_(verbose_level)
   {}
   inline void push_keyword(int, int, int keyword) override {
@@ -272,7 +272,7 @@ struct TokenStackOutStream final : TokenStack
   }
   inline void push_num(int, int, const std::string &str_num) override {
     if (verbose_level_ > 0)
-      out_ << "number '"; 
+      out_ << "number '";
     out_ << str_num;
     if (verbose_level_ > 0)
       out_ << "'";
@@ -280,7 +280,7 @@ struct TokenStackOutStream final : TokenStack
   }
   inline void push_id(int, int, const std::string &str_id) override {
     if (verbose_level_ > 0)
-      out_ << "number '"; 
+      out_ << "number '";
     out_ << str_id;
     if (verbose_level_ > 0)
       out_ << "'";
@@ -305,13 +305,13 @@ struct TokenStack2 final : TokenStack
   inline void push_id(int col, int row, const std::string &str_id) override {
     tokens_.push_back(Token{str_id, col, row, Token::ID, ERR_NO});
   }
-  inline bool has_next() const { 
+  inline bool has_next() const {
     return pos_ < tokens_.size();
   }
-  inline Token pop() { 
+  inline Token pop() {
     if (!has_next()) {
-      throw std::runtime_error("no tokens to pop"); 
-      return {}; 
+      throw std::runtime_error("no tokens to pop");
+      return {};
     }
     return tokens_[pos_++];
   }
@@ -320,7 +320,7 @@ struct TokenStack2 final : TokenStack
     return tokens_[ind];
   }
   inline bool has_at(int ind) const {
-    return tokens_.size() > ind;    
+    return tokens_.size() > ind;
   }
 private:
   std::vector<Token> tokens_;
@@ -381,8 +381,8 @@ int run_lexer_test(const std::string &num) {
   std::cerr << "EXPECTED:\n" << out_res.first << "\n" << out_res.second;
   std::cerr << "ACTUAL:\n" << in_res.first << "\n" << in_res.second;
   if (verbose) {
-      std::cout << "DEBUG:\n"; 
-      tokenize_test_in(in, 10);
+    std::cout << "DEBUG:\n";
+    tokenize_test_in(in, 10);
   }
   return 1;
 }
@@ -391,7 +391,7 @@ int run_lexer_test(const std::string &num) {
 struct Node
 {
   enum {
-    TOKEN =      0, 
+    TOKEN =      0,
     EXPRESSION = 1 << 0,
     PARENTHES =  1 << 1 | EXPRESSION,
     SCOPE =      1 << 2 | EXPRESSION,
@@ -401,7 +401,7 @@ struct Node
   virtual ~Node() = default;
 
   int dump_depth = 0;
-  static void dump_sep(std::ostream &out, int depth) { out << std::setw(depth * 2) << ""; }  
+  static void dump_sep(std::ostream &out, int depth) { out << std::setw(depth * 2) << ""; }
   virtual void dump(std::ostream &out) { dump_sep(out, dump_depth); }
 
   // TODO: fix it to observer pattern
@@ -457,8 +457,8 @@ struct NodeSemicolon : NodeStatement
 // aka statements list
 struct NodeBlock : NodeStatement
 {
-  NodeBlock(NodeStatement *head, NodeStatement *next) : 
-      NodeStatement(), head(head), next(next)
+  NodeBlock(NodeStatement *head, NodeStatement *next) :
+    NodeStatement(), head(head), next(next)
   {}
   ~NodeBlock() override {
     delete head;
@@ -483,30 +483,60 @@ struct NodeBlock : NodeStatement
 struct NodeNum final : NodeExpr
 {
   NodeNum(const std::string &str) : NodeExpr(Token::NUMBER), str(str) {}
-  void dump(std::ostream &out) override { 
+  void dump(std::ostream &out) override {
     NodeExpr::dump(out);
-    out << str << "\n"; 
+    out << str << "\n";
   }
   std::string str;
 };
 
-struct NodePlus final : NodeExpr
+struct NodeBinOp : NodeExpr
 {
-  NodePlus(NodeExpr *left, NodeExpr *right) : NodeExpr(Token::PLUS), left(left), right(right) {}
-  ~NodePlus() override {
+  NodeBinOp(int ind, int priority, NodeExpr *left, NodeExpr *right) :
+    NodeExpr(ind), priority(priority), left(left), right(right)
+  {}
+  ~NodeBinOp() override {
     delete left;
     delete right;
   }
   void dump(std::ostream &out) override {
     NodeExpr::dump(out);
-    out << "+\n";
+    out << token_strs[ind_] << "\n";
     left->dump_depth = dump_depth + 1;
     right->dump_depth = dump_depth + 1;
     left->dump(out);
     right->dump(out);
   }
+  int priority = 0;
   NodeExpr *left = nullptr;
   NodeExpr *right = nullptr;
+};
+
+enum {
+  PRIORITY_PLUS  = 1,
+  PRIORITY_MINUS = PRIORITY_PLUS,
+  PRIORITY_MULT  = 2,
+};
+
+struct NodePlus final : NodeBinOp
+{
+  NodePlus(NodeExpr *left, NodeExpr *right) :
+    NodeBinOp(Token::PLUS, PRIORITY_PLUS, left, right)
+  {}
+};
+
+struct NodeMinus final : NodeBinOp
+{
+  NodeMinus(NodeExpr *left, NodeExpr *right) :
+    NodeBinOp(Token::MINUS, PRIORITY_MINUS, left, right)
+  {}
+};
+
+struct NodeMult final : NodeBinOp
+{
+  NodeMult(NodeExpr *left, NodeExpr *right) :
+    NodeBinOp(Token::ASTERISK, PRIORITY_MULT, left, right)
+  {}
 };
 
 struct NodeParenthes final : NodeExpr
@@ -541,8 +571,8 @@ struct NodeScope final : NodeExpr
 
 struct NodeWhile : NodeStatement
 {
-  NodeWhile(NodeParenthes *cond, NodeScope *body) : 
-      NodeStatement(), cond(cond), body(body)
+  NodeWhile(NodeParenthes *cond, NodeScope *body) :
+    NodeStatement(), cond(cond), body(body)
   {}
   ~NodeWhile() override {
     delete cond;
@@ -586,8 +616,8 @@ struct NodeNot final : NodeExpr
 
 void parse(TokenStack2 &token_stack, std::ostream &out) {
   std::vector<Node *> nodes;
-  const auto node_at = [&nodes](const int ind_neg) -> Node* { 
-    return nodes[nodes.size() + ind_neg]; 
+  const auto node_at = [&nodes](const int ind_neg) -> Node* {
+    return nodes[nodes.size() + ind_neg];
   };
 
   while (token_stack.has_next()) {
@@ -610,8 +640,8 @@ void parse(TokenStack2 &token_stack, std::ostream &out) {
           && node_at(-2)->has_type(Node::PARENTHES)
           && node_at(-1)->has_type(Node::SCOPE)) {
         Node *node = new NodeWhile(
-            static_cast<NodeParenthes *>(node_at(-2)),
-            static_cast<NodeScope *>(node_at(-1)));
+              static_cast<NodeParenthes *>(node_at(-2)),
+              static_cast<NodeScope *>(node_at(-1)));
         delete node_at(-3);
         nodes.pop_back();
         nodes.pop_back();
@@ -625,7 +655,7 @@ void parse(TokenStack2 &token_stack, std::ostream &out) {
           && node_at(-2)->has_type(Node::STATEMENT)
           && node_at(-1)->is_token(Token::SCOPE_CLOSE)) {
         Node *node = new NodeScope(
-            static_cast<NodeStatement *>(node_at(-2)));
+              static_cast<NodeStatement *>(node_at(-2)));
         delete node_at(-3);
         delete node_at(-1);
         nodes.pop_back();
@@ -638,8 +668,8 @@ void parse(TokenStack2 &token_stack, std::ostream &out) {
           && node_at(-2)->has_type(Node::STATEMENT)
           && node_at(-1)->has_type(Node::STATEMENT)) {
         Node *node = new NodeBlock(
-          static_cast<NodeStatement *>(node_at(-2)),
-          static_cast<NodeStatement *>(node_at(-1)));        
+              static_cast<NodeStatement *>(node_at(-2)),
+              static_cast<NodeStatement *>(node_at(-1)));
         nodes.pop_back();
         nodes.pop_back();
         nodes.push_back(node);
@@ -661,7 +691,7 @@ void parse(TokenStack2 &token_stack, std::ostream &out) {
           && node_at(-2)->has_type(Node::EXPRESSION)
           && node_at(-1)->is_token(Token::PARENTHES_CLOSE)) {
         Node *node = new NodeParenthes(
-            static_cast<NodeExpr *>(node_at(-2)));
+              static_cast<NodeExpr *>(node_at(-2)));
         delete node_at(-3);
         delete node_at(-1);
         nodes.pop_back();
@@ -671,18 +701,51 @@ void parse(TokenStack2 &token_stack, std::ostream &out) {
         continue;
       }
       // binary ops
-      if (nodes.size() >= 3
-          && node_at(-3)->has_type(Node::EXPRESSION)
-          && node_at(-2)->is_token(Token::PLUS)
-          && node_at(-1)->has_type(Node::EXPRESSION)) {
-        Node *plus = new NodePlus(
-            static_cast<NodeExpr *>(node_at(-3)), 
-            static_cast<NodeExpr *>(node_at(-1)));
+      const auto is_bin_op_with = [&](const int token_ind) {
+        return nodes.size() >= 3
+            && node_at(-3)->has_type(Node::EXPRESSION)
+            && node_at(-2)->is_token(token_ind)
+            && node_at(-1)->has_type(Node::EXPRESSION);
+      };
+      const auto set_bin_op_left_by_priority = [&](NodeBinOp *binop) {
+        NodeBinOp *parent_new = nullptr;
+        auto *left_expr = static_cast<NodeExpr *>(node_at(-3));
+        for (;;) {
+          auto *left_expr_as_binop = dynamic_cast<NodeBinOp *>(left_expr);
+          if (!left_expr_as_binop)
+            break;
+          if (left_expr_as_binop->priority > binop->priority)
+            break;
+          parent_new = left_expr_as_binop;
+          left_expr = left_expr_as_binop->right;
+        }
+        binop->left = left_expr;
         delete node_at(-2);
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.push_back(plus);
+        if (parent_new == nullptr) {
+          nodes.pop_back();
+          nodes.pop_back();
+          nodes.pop_back();
+          nodes.push_back(binop);
+        } else {
+          nodes.pop_back();
+          nodes.pop_back();
+          parent_new->right = binop;
+        }
+      };
+
+      if (is_bin_op_with(Token::ASTERISK)) {
+        auto *binop = new NodeMult(nullptr, static_cast<NodeExpr *>(node_at(-1)));
+        set_bin_op_left_by_priority(binop);
+        continue;
+      }
+      if (is_bin_op_with(Token::PLUS)) {
+        auto *binop = new NodePlus(nullptr, static_cast<NodeExpr *>(node_at(-1)));
+        set_bin_op_left_by_priority(binop);
+        continue;
+      }
+      if (is_bin_op_with(Token::MINUS)) {
+        auto *binop = new NodeMinus(nullptr, static_cast<NodeExpr *>(node_at(-1)));
+        set_bin_op_left_by_priority(binop);
         continue;
       }
       // unary ops
@@ -724,19 +787,24 @@ int main() {
   run_lexer_test("014"); // ids vs keywords
   run_lexer_test("015"); // ids and nums w/o space
   run_lexer_test("016"); // nums w/ zeros
- 
+
   
   const auto run_parser_test = [](const std::string &num) {
     const auto file_in =  "parser_tests/in" + num;
     const auto file_out = "parser_tests/out" + num;
+    std::cout << "Test '" << num << "': ";
     std::ifstream in;
     in.open(file_in, std::ios::binary);
-    if (!in)
-      return "in file missing";
+    if (!in) {
+      std::cout << "in file missing\n";
+      return;
+    }
     TokenStack2 stack;
     const int code = tokenize2(in, stack, 0);
-    if (code)
-      return "can't tokenize";
+    if (code) {
+      std::cout << "can't tokenize\n";
+      return;
+    }
     in.close();
     std::stringstream out;
     parse(stack, out);
@@ -746,8 +814,10 @@ int main() {
     // read out
     std::ifstream in2;
     in2.open(file_out, std::ios::binary);
-    if (!in2)
-      return "out file missing";
+    if (!in2) {
+      std::cout << "out file missing\n";
+      return;
+    }
     std::string s;
     std::stringstream ss;
     while (std::getline(in2, s)) {
@@ -758,23 +828,28 @@ int main() {
     
     // compare
     if (actual == expect) {
-      std::cout << "Test '" << num << "': PASS\n";
-      return "";
+      std::cout << "PASS\n";
+      return;
     }
-    std::cout << "Test '" << num << "': FAILED\n";
+    std::cout << "FAILED\n";
     std::cout << "ACTUAL:\n" << actual << "EXPECTED:\n" << expect;
-    return "err";
+    return;
   };
   run_parser_test("001");
   run_parser_test("002");
   run_parser_test("003");
   run_parser_test("004");
   run_parser_test("005");
+  run_parser_test("006");
+  run_parser_test("007");
+  run_parser_test("008");
+  run_parser_test("008");
+  run_parser_test("009");
 
   {
-    std::cout << "EX5:\n";
+    std::cout << "EX7:\n";
     TokenStack2 stack;
-    tokenize_string("while (1+2){2+3;}", stack);
+    tokenize_string("1+2+3*4", stack);
     parse(stack, std::cout);
   }
 

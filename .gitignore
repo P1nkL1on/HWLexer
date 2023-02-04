@@ -7,6 +7,7 @@ replit.nix
 replit.*
 main
 *.out
+*.pro*
 
 # Default C++
 build-*
