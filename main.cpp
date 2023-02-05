@@ -15,19 +15,17 @@ enum {
   ERR_TOKEN_AMBIGIOUS,
 };
 
-constexpr int n_keywords = 24;
+constexpr int n_keywords = 25;
 const std::array<std::string, n_keywords> token_strs{
   "+", "+=", "!",    "!=",     "=",  "==",    "(",     ")",
   "{", "}",  "func", "return", "if", "while", "print", "else",
-  "?", ":",  ";",    "&&",     "-",  "*",     "/",     "||",
+  "?", ":",  ";",    "&&",     "-",  "*",     "/", "||", "//",
 };
 constexpr int n_tokens = n_keywords + 2;
-constexpr int ind_token_num = n_keywords + 0;
-constexpr int ind_token_id =  n_keywords + 1;
 const std::string token_id_stops = "+=!(){}?:;&|-*/";
-inline bool is_id(const char c) { 
+inline bool isvarname(const char c) {
   return token_id_stops.find(c) == std::string::npos;
-};
+}
 
 struct Token
 {
@@ -39,7 +37,7 @@ struct Token
     ADDITION_ASSIGNMENT,
     NOT,
     NOT_EQUALS,
-    ASSGN,
+    ASSIGN,
     EQUALS,
     PARENTHES_OPEN,
     PARENTHES_CLOSE,
@@ -51,34 +49,36 @@ struct Token
     WHILE,
     PRINT,
     ELSE,
-    INPUT,
+    SCAN,
     COLON,
     SEMICOLON,
     AND,
     MINUS,
-    ASTERISK,
+    MULT,
     SLASH,
     OR,
     // ^ add new keywords ^
+
+    COMMENT,
     NUMBER,
     ID,
 
-    ind_size,
+    LAST_KEYWORD_ = COMMENT - 1,
   };
   int ind = -1;
   int err = ERR_TOKEN_UNDEFINED;
 };
 
-struct TokenStack
+struct ITokenStack
 {
-  virtual ~TokenStack() = default;
+  virtual ~ITokenStack() = default;
   virtual void push_keyword(int col, int row, int keyword) = 0;
   virtual void push_err(int col, int row, int err) = 0;
   virtual void push_num(int col, int row, const std::string &str_num) = 0;
   virtual void push_id(int col, int row, const std::string &str_id) = 0;
 };
 
-int tokenize2(std::istream &ss, TokenStack &token_stack,
+int tokenize2(std::istream &ss, ITokenStack &token_stack,
               int verbose_level = 0) {
   using std::array;
   using std::cout;
@@ -102,7 +102,6 @@ int tokenize2(std::istream &ss, TokenStack &token_stack,
     /// `i` is pos in str
     /// `t` is pos in token_strs
     bool has_any_token = false;
-    bool has_inced_any = false;
     char c;
     for (int i = -1, t = 0; i < len; ++i, ++t) {
       if (i == len - 1)
@@ -133,7 +132,7 @@ int tokenize2(std::istream &ss, TokenStack &token_stack,
       }
       // inc num if needed
       {
-        int &len_match_num = token_matches_next[ind_token_num];
+        int &len_match_num = token_matches_next[Token::NUMBER];
         // can't start from 0
         if (len_match_num >= 0 && isdigit(c)) {
           ++len_match_num;
@@ -144,10 +143,10 @@ int tokenize2(std::istream &ss, TokenStack &token_stack,
       }
       // inc id if needed
       {
-        int &len_match_id = token_matches_next[ind_token_id];
+        int &len_match_id = token_matches_next[Token::ID];
         // can't start from digit
         // can't contain any of prohobited symbols
-        if (len_match_id >= 0 && is_id(c) && !(len_match_id == 0 && isdigit(c))) {
+        if (len_match_id >= 0 && isvarname(c) && !(len_match_id == 0 && isdigit(c))) {
           ++len_match_id;
           if (verbose_level >= 3)
             cout << "  inc id to " << len_match_id << "\n";
@@ -198,9 +197,9 @@ define_token:
         if (token_ind >= n_keywords) {
           if (verbose_level >= 2) {
             cout << "  candidate ";
-            if (token_ind == ind_token_num)
+            if (token_ind == Token::NUMBER)
               cout << "number";
-            else if (token_ind == ind_token_id)
+            else if (token_ind == Token::ID)
               cout << "id";
             cout << " of " << token_match_best << "\n";
           }
@@ -214,6 +213,7 @@ define_token:
       const bool ruined_all = (-1 == *max_element(token_matches_next.begin(), token_matches_next.end()));
       const int token_col = 2 + i + ruined_all - token_match_best;
       const int token_row = row;
+      bool is_skipping_til_line_end = false;
 
       if (token_ind_best == -1) {
         token_stack.push_err(token_row, token_col, ERR_TOKEN_UNDEFINED);
@@ -223,26 +223,33 @@ define_token:
         token_stack.push_err(token_row, token_col, ERR_TOKEN_AMBIGIOUS);
         if (verbose_level >= 1)
           cout << " ambigious call!\n";
-      } else if (token_ind_best < ind_token_num) {
+      } else if (token_ind_best <= Token::LAST_KEYWORD_) {
         token_stack.push_keyword(token_row, token_col, token_ind_best);
         if (verbose_level >= 1)
           cout << " '" << token_strs[token_ind_best] << "'\n";
+      } else if (token_ind_best == Token::COMMENT) { 
+        if (verbose_level >= 1)
+          cout << " comment\n";
+        is_skipping_til_line_end = true;
       } else {
         const string substr = s.substr(token_col - 1, token_match_best);
-        if (token_ind_best == ind_token_num)
+        if (token_ind_best == Token::NUMBER)
           token_stack.push_num(token_row, token_col, substr);
-        if (token_ind_best == ind_token_id)
+        if (token_ind_best == Token::ID)
           token_stack.push_id(token_row, token_col, substr);
 
-        if (token_ind_best == ind_token_num && verbose_level >= 1)
+        if (token_ind_best == Token::NUMBER && verbose_level >= 1)
           cout << " number " << substr << "\n";
-        else if (token_ind_best == ind_token_id && verbose_level >= 1)
+        else if (token_ind_best == Token::ID && verbose_level >= 1)
           cout << " id " << substr << "\n";
       }
 
       fill(token_matches.begin(), token_matches.end(), 0);
       has_any_token = false;
       t = -1;
+
+      if (is_skipping_til_line_end)
+        break;
       continue;
       // end define_token
     }
@@ -250,12 +257,12 @@ define_token:
   return ERR_NO;
 }
 
-int tokenize_string(std::string const &str, TokenStack &token_stack, int verbose_level = 0) {
+int tokenize_string(std::string const &str, ITokenStack &token_stack, int verbose_level = 0) {
   std::stringstream in(str);
   return tokenize2(in, token_stack, verbose_level);
 }
 
-struct TokenStackOutStream final : TokenStack
+struct TokenStackOutStream final : ITokenStack
 {
   TokenStackOutStream(std::ostream &out, int verbose_level = 0) :
     out_(out), verbose_level_(verbose_level)
@@ -291,7 +298,7 @@ private:
   int verbose_level_ = 0;
 };
 
-struct TokenStack2 final : TokenStack
+struct TokenStack final : ITokenStack
 {
   inline void push_keyword(int col, int row, int keyword) override {
     tokens_.push_back(Token{"", col, row, keyword, ERR_NO});
@@ -314,13 +321,6 @@ struct TokenStack2 final : TokenStack
       return {};
     }
     return tokens_[pos_++];
-  }
-  // TODO: remove, its for recursive parser
-  inline const Token &at(int ind) const {
-    return tokens_[ind];
-  }
-  inline bool has_at(int ind) const {
-    return tokens_.size() > ind;
   }
 private:
   std::vector<Token> tokens_;
@@ -415,6 +415,8 @@ struct NodeBlock;
 struct NodeSemicolon;
 struct NodeUnOp;
 struct NodeNum;
+struct NodeScan;
+struct NodeId;
 struct NodeScope;
 struct NodeParenthes;
 struct NodeWhile;
@@ -426,6 +428,8 @@ struct INodeVisitor
   virtual void visit(NodeUnOp const&) = 0;
   virtual void visit(NodeBlock const&) = 0;
   virtual void visit(NodeSemicolon const&) = 0;
+  virtual void visit(NodeScan const&) = 0;
+  virtual void visit(NodeId const&) = 0;
   virtual void visit(NodeNum const&) = 0;
   virtual void visit(NodeScope const&) = 0;
   virtual void visit(NodeParenthes const&) = 0;
@@ -443,7 +447,6 @@ struct NodeExpr : Node
 protected:
   NodeExpr(int ind, int val = EXPRESSION) : Node(ind, val) {}
 };
-
 
 // aka 1 statement
 struct NodeSemicolon : NodeStatement
@@ -484,10 +487,34 @@ struct NodeNum final : NodeExpr
   std::string str;
 };
 
-struct NodeBinOp : NodeExpr
+struct NodeId final : NodeExpr
+{
+  NodeId(const std::string &str) : NodeExpr(Token::ID), str(str) {}
+  void accept(INodeVisitor &v) const override {
+    v.visit(*this);
+  }
+  std::string str;
+};
+
+struct NodeScan final : NodeExpr
+{
+  NodeScan() : NodeExpr(Token::SCAN) {}
+  void accept(INodeVisitor &v) const override {
+    v.visit(*this);
+  }
+};
+
+struct NodeOp : NodeExpr
+{
+  NodeOp(int ind, int priority) : NodeExpr(ind, EXPRESSION), priority(priority){}
+  virtual NodeExpr *&last_arg() = 0;
+  int priority = 0;
+};
+
+struct NodeBinOp : NodeOp
 {
   NodeBinOp(int ind, int priority, NodeExpr *left, NodeExpr *right) :
-    NodeExpr(ind), priority(priority), left(left), right(right)
+    NodeOp(ind, priority), left(left), right(right)
   {}
   ~NodeBinOp() override {
     delete left;
@@ -496,15 +523,17 @@ struct NodeBinOp : NodeExpr
   void accept(INodeVisitor &v) const override {
     v.visit(*this);
   }
-  int priority = 0;
+  NodeExpr *&last_arg() override {
+    return right;
+  }
   NodeExpr *left = nullptr;
   NodeExpr *right = nullptr;
 };
 
-struct NodeUnOp : NodeExpr
+struct NodeUnOp : NodeOp
 {
   NodeUnOp(int ind, int priority, NodeExpr *expr) :
-    NodeExpr(ind), priority(priority), expr(expr)
+    NodeOp(ind, priority), expr(expr)
   {}
   ~NodeUnOp() override {
     delete expr;
@@ -512,15 +541,26 @@ struct NodeUnOp : NodeExpr
   void accept(INodeVisitor &v) const override {
     v.visit(*this);
   }
-  int priority = 0;
+  NodeExpr *&last_arg() override {
+    return expr;
+  }
   NodeExpr *expr = nullptr;
 };
 
 enum {
-  PRIORITY_PLUS  = 1,
+  PRIORITY_PRINT,
+  PRIORITY_ASSIGN,
+  PRIORITY_PLUS,
   PRIORITY_MINUS = PRIORITY_PLUS,
-  PRIORITY_MULT  = 2,
-  PRIORITY_NOT   = 3,
+  PRIORITY_MULT,
+  PRIORITY_NOT,
+};
+
+struct NodeAssign final : NodeBinOp
+{
+  NodeAssign(NodeExpr *left, NodeExpr *right) :
+    NodeBinOp(Token::ASSIGN, PRIORITY_ASSIGN, left, right)
+  {}
 };
 
 struct NodePlus final : NodeBinOp
@@ -540,13 +580,18 @@ struct NodeMinus final : NodeBinOp
 struct NodeMult final : NodeBinOp
 {
   NodeMult(NodeExpr *left, NodeExpr *right) :
-    NodeBinOp(Token::ASTERISK, PRIORITY_MULT, left, right)
+    NodeBinOp(Token::MULT, PRIORITY_MULT, left, right)
   {}
 };
 
 struct NodeNot final : NodeUnOp
 {
   NodeNot(NodeExpr *expr) : NodeUnOp(Token::NOT, PRIORITY_NOT, expr) {}
+};
+
+struct NodePrint final : NodeUnOp
+{
+  NodePrint(NodeExpr *expr) : NodeUnOp(Token::PRINT, PRIORITY_PRINT, expr) {}
 };
 
 struct NodeParenthes final : NodeExpr
@@ -640,7 +685,23 @@ struct NodeVisitorOut : INodeVisitor
   void visit(NodeNum const& n) override {
     dump_offset();
     inc_offset();
+    if (is_debug_verbose)
+      out << "number ";
     out << n.str << "\n";
+    dec_offset();
+  }
+  void visit(NodeId const& n) override {
+    dump_offset();
+    inc_offset();
+    if (is_debug_verbose)
+      out << "varname ";
+    out << n.str << "\n";
+    dec_offset();
+  }
+  void visit(NodeScan const& n) override {
+    dump_offset();
+    inc_offset();
+    out << "?\n";
     dec_offset();
   }
   void visit(NodeScope const& n) override {
@@ -667,7 +728,7 @@ struct NodeVisitorOut : INodeVisitor
   }
 };
 
-void parse(TokenStack2 &token_stack, INodeVisitor &visitor) {
+void parse(TokenStack &token_stack, INodeVisitor &visitor) {
   std::vector<Node *> nodes;
   const auto node_at = [&nodes](const int ind_neg) -> Node* {
     return nodes[nodes.size() + ind_neg];
@@ -679,10 +740,14 @@ void parse(TokenStack2 &token_stack, INodeVisitor &visitor) {
       std::cout << "err in token " << token.err << "\n";
       return;
     }
-    if (token.ind != Token::NUMBER) {
-      nodes.push_back(new Node(token.ind));
-    } else {
+    if (token.ind == Token::NUMBER) {
       nodes.push_back(new NodeNum(token.str));
+    } else if (token.ind == Token::ID) {
+      nodes.push_back(new NodeId(token.str));
+    } else if (token.ind == Token::SCAN) {
+      nodes.push_back(new NodeScan());
+    } else {
+      nodes.push_back(new Node(token.ind));
     }
 
     /// check the rules
@@ -760,17 +825,19 @@ void parse(TokenStack2 &token_stack, INodeVisitor &visitor) {
             && node_at(-2)->is_token(token_ind)
             && node_at(-1)->has_type(Node::EXPRESSION);
       };
-      const auto set_bin_op_left_by_priority = [&](NodeBinOp *binop) {
-        NodeBinOp *parent_new = nullptr;
+      /// right_based is something, which destincts x=y=5 from 1+2-3
+      enum class op_side { right, left };
+      const auto set_bin_op_left_by_priority = [&](NodeBinOp *binop, op_side side) {
+        NodeOp *parent_new = nullptr;
         auto *left_expr = static_cast<NodeExpr *>(node_at(-3));
         for (;;) {
-          auto *left_expr_as_binop = dynamic_cast<NodeBinOp *>(left_expr);
-          if (!left_expr_as_binop)
+          auto *left_expr_as_op = dynamic_cast<NodeOp *>(left_expr);
+          if (!left_expr_as_op)
             break;
-          if (left_expr_as_binop->priority >= binop->priority)
+          if (left_expr_as_op->priority > binop->priority - (side == op_side::right))
             break;
-          parent_new = left_expr_as_binop;
-          left_expr = left_expr_as_binop->right;
+          parent_new = left_expr_as_op;
+          left_expr = left_expr_as_op->last_arg();
         }
         binop->left = left_expr;
         delete node_at(-2);
@@ -782,40 +849,69 @@ void parse(TokenStack2 &token_stack, INodeVisitor &visitor) {
         } else {
           nodes.pop_back();
           nodes.pop_back();
-          parent_new->right = binop;
+          parent_new->last_arg() = binop;
         }
       };
+      const auto is_un_op_with = [&](const int token_ind) {
+        return nodes.size() >= 2
+            && node_at(-2)->is_token(token_ind)
+            && node_at(-1)->has_type(Node::EXPRESSION);
+      };
+      const auto set_un_op_left_by_priority = [&](NodeUnOp *unop) {
+        delete node_at(-2);
+        nodes.pop_back();
+        nodes.pop_back();
+        nodes.push_back(unop);
+      };
 
-      if (is_bin_op_with(Token::ASTERISK)) {
+      /// x=x
+      /// =
+      ///  x
+      ///  x
+      ///
+      /// x=x__=5__
+      /// =
+      ///  x
+      ///  =
+      ///   x
+      ///   5
+      if (is_bin_op_with(Token::ASSIGN)) {
+        auto *binop = new NodeAssign(nullptr, static_cast<NodeExpr *>(node_at(-1)));
+        set_bin_op_left_by_priority(binop, op_side::left);
+        continue;
+      }
+      if (is_bin_op_with(Token::MULT)) {
         auto *binop = new NodeMult(nullptr, static_cast<NodeExpr *>(node_at(-1)));
-        set_bin_op_left_by_priority(binop);
+        set_bin_op_left_by_priority(binop, op_side::right);
         continue;
       }
       if (is_bin_op_with(Token::PLUS)) {
         auto *binop = new NodePlus(nullptr, static_cast<NodeExpr *>(node_at(-1)));
-        set_bin_op_left_by_priority(binop);
+        set_bin_op_left_by_priority(binop, op_side::right);
         continue;
       }
       if (is_bin_op_with(Token::MINUS)) {
         auto *binop = new NodeMinus(nullptr, static_cast<NodeExpr *>(node_at(-1)));
-        set_bin_op_left_by_priority(binop);
+        set_bin_op_left_by_priority(binop, op_side::right);
         continue;
       }
       // unary ops
-      if (nodes.size() >= 2
-          && node_at(-2)->is_token(Token::NOT)
-          && node_at(-1)->has_type(Node::EXPRESSION)) {
-        Node *node = new NodeNot(static_cast<NodeExpr *>(node_at(-1)));
-        delete node_at(-2);
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.push_back(node);
+      if (is_un_op_with(Token::NOT)) {
+        auto *unop = new NodeNot(static_cast<NodeExpr *>(node_at(-1)));
+        set_un_op_left_by_priority(unop);
+        continue;
+      }
+      if (is_un_op_with(Token::PRINT)) {
+        auto *unop = new NodePrint(static_cast<NodeExpr *>(node_at(-1)));
+        set_un_op_left_by_priority(unop);
         continue;
       }
       break;
     }
   }
   for (Node *node : nodes) {
+    if (nodes.size() > 1)
+      std::cout << "NODE:\n";
     node->accept(visitor);
     delete node;
   }
@@ -838,7 +934,8 @@ int main() {
   run_lexer_test("014"); // ids vs keywords
   run_lexer_test("015"); // ids and nums w/o space
   run_lexer_test("016"); // nums w/ zeros
-
+  run_lexer_test("017"); // comments
+  run_lexer_test("018");
   
   const auto run_parser_test = [](const std::string &num) {
     const auto file_in =  "parser_tests/in" + num;
@@ -850,7 +947,7 @@ int main() {
       std::cout << "in file missing\n";
       return;
     }
-    TokenStack2 stack;
+    TokenStack stack;
     const int code = tokenize2(in, stack, 0);
     if (code) {
       std::cout << "can't tokenize\n";
@@ -898,12 +995,15 @@ int main() {
   run_parser_test("008");
   run_parser_test("009");
   run_parser_test("010");
+  run_parser_test("011");
+  run_parser_test("012");
+  run_parser_test("013");
 
   {
     std::cout << "SAMPLE:\n";
-    TokenStack2 stack;
-    tokenize_string("1+!2+3", stack);
-    NodeVisitorOut visitor(std::cout, true);
+    TokenStack stack;
+    tokenize_string("x=(y=2)y=2", stack);
+    NodeVisitorOut visitor(std::cout, false);
     parse(stack, visitor);
   }
 
