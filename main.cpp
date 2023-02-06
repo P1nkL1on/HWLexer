@@ -387,29 +387,7 @@ int run_lexer_test(const std::string &num) {
   return 1;
 }
 
-struct INodeVisitor;
-
-struct Node
-{
-  enum {
-    TOKEN =      0,
-    EXPRESSION = 1 << 0,
-    PARENTHES =  1 << 1 | EXPRESSION,
-    SCOPE =      1 << 2 | EXPRESSION,
-    STATEMENT  = 1 << 3,
-  };
-  Node(int ind, int val = TOKEN) : ind_(ind), val_(val) {}
-  virtual ~Node() = default;
-  virtual void accept(INodeVisitor &) const {}
-
-  bool is_token(int ind) const { return val_ == TOKEN && ind_ == ind; }
-  bool has_type(int val) const { return val_ & val; }
-  int ind_ = -1; /// token ind
-protected:
-  int val_ = TOKEN;
-};
-
-
+struct Node;
 struct NodeBinOp;
 struct NodeBlock;
 struct NodeSemicolon;
@@ -434,6 +412,30 @@ struct INodeVisitor
   virtual void visit(NodeScope const&) = 0;
   virtual void visit(NodeParenthes const&) = 0;
   virtual void visit(NodeWhile const&) = 0;
+  virtual void visit(Node const&) = 0;
+};
+
+struct Node
+{
+  enum {
+    TOKEN =      0,
+    EXPRESSION = 1 << 0,
+    PARENTHES =  1 << 1 | EXPRESSION,
+    SCOPE_ONLY = 1 << 2,
+    SCOPE =      1 << 2 | EXPRESSION,
+    STATEMENT  = 1 << 3,
+  };
+  Node(int ind, int val = TOKEN) : ind_(ind), val_(val) {}
+  virtual ~Node() = default;
+  virtual void accept(INodeVisitor &v) const {
+    v.visit(*this);
+  }
+
+  bool is_token(int ind) const { return val_ == TOKEN && ind_ == ind; }
+  bool has_type(int val) const { return val_ & val; }
+  int ind_ = -1; /// token ind
+protected:
+  int val_ = TOKEN;
 };
 
 struct NodeStatement : Node
@@ -620,7 +622,7 @@ struct NodeScope final : NodeExpr
 
 struct NodeWhile : NodeStatement
 {
-  NodeWhile(NodeParenthes *cond, NodeScope *body) :
+  NodeWhile(NodeParenthes *cond, Node *body) :
     NodeStatement(), cond(cond), body(body)
   {}
   ~NodeWhile() override {
@@ -631,8 +633,24 @@ struct NodeWhile : NodeStatement
     v.visit(*this);
   }
   NodeParenthes *cond = nullptr;
-  NodeScope *body = nullptr;
+  Node *body = nullptr;
 };
+
+// struct NodeIf : NodeStatement
+// {
+//   NodeIf(NodeParenthes *cond, NodeStatement *body) :
+//     NodeStatement(), cond(cond), body(body)
+//   {}
+//   ~NodeIf() override {
+//     delete cond;
+//     delete body;
+//   }
+//   void accept(INodeVisitor &v) const override {
+//     v.visit(*this);
+//   }
+//   NodeParenthes *cond = nullptr;
+//   NodeScope *body = nullptr;
+// };
 
 struct NodeVisitorOut : INodeVisitor
 {
@@ -726,12 +744,21 @@ struct NodeVisitorOut : INodeVisitor
     n.body->accept(*this);
     dec_offset();
   }
+  void visit(Node const& n) override {
+    dump_offset();
+    out << "token '"<< token_strs[n.ind_] << "'\n";
+  }
 };
 
 void parse(TokenStack &token_stack, INodeVisitor &visitor) {
   std::vector<Node *> nodes;
   const auto node_at = [&nodes](const int ind_neg) -> Node* {
     return nodes[nodes.size() + ind_neg];
+  };
+  const auto pop_x_and_push = [&nodes](int x, Node *node) {
+    while (x--)
+      nodes.pop_back();
+    nodes.push_back(node);
   };
 
   while (token_stack.has_next()) {
@@ -756,15 +783,12 @@ void parse(TokenStack &token_stack, INodeVisitor &visitor) {
       if (nodes.size() >= 3
           && node_at(-3)->is_token(Token::WHILE)
           && node_at(-2)->has_type(Node::PARENTHES)
-          && node_at(-1)->has_type(Node::SCOPE)) {
+          && node_at(-1)->has_type(Node::SCOPE_ONLY | Node::STATEMENT)) {
         Node *node = new NodeWhile(
               static_cast<NodeParenthes *>(node_at(-2)),
-              static_cast<NodeScope *>(node_at(-1)));
+              node_at(-1));
         delete node_at(-3);
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.push_back(node);
+        pop_x_and_push(3, node);
         continue;
       }
       // blocks
@@ -776,10 +800,7 @@ void parse(TokenStack &token_stack, INodeVisitor &visitor) {
               static_cast<NodeStatement *>(node_at(-2)));
         delete node_at(-3);
         delete node_at(-1);
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.push_back(node);
+        pop_x_and_push(3, node);
         continue;
       }
       if (nodes.size() >= 2
@@ -788,9 +809,7 @@ void parse(TokenStack &token_stack, INodeVisitor &visitor) {
         Node *node = new NodeBlock(
               static_cast<NodeStatement *>(node_at(-2)),
               static_cast<NodeStatement *>(node_at(-1)));
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.push_back(node);
+        pop_x_and_push(2, node);
         continue;
       }
       if (nodes.size() >= 2
@@ -798,9 +817,7 @@ void parse(TokenStack &token_stack, INodeVisitor &visitor) {
           && node_at(-1)->is_token(Token::SEMICOLON)) {
         Node *node = new NodeSemicolon(static_cast<NodeExpr *>(node_at(-2)));
         delete node_at(-1);
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.push_back(node);
+        pop_x_and_push(2, node);
         continue;
       }
       // parens
@@ -812,10 +829,7 @@ void parse(TokenStack &token_stack, INodeVisitor &visitor) {
               static_cast<NodeExpr *>(node_at(-2)));
         delete node_at(-3);
         delete node_at(-1);
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.push_back(node);
+        pop_x_and_push(3, node);
         continue;
       }
       // binary ops
@@ -823,7 +837,7 @@ void parse(TokenStack &token_stack, INodeVisitor &visitor) {
         return nodes.size() >= 3
             && node_at(-3)->has_type(Node::EXPRESSION)
             && node_at(-2)->is_token(token_ind)
-            && node_at(-1)->has_type(Node::EXPRESSION);
+            && node_at(-1)->has_type(Node::EXPRESSION | Node::STATEMENT);
       };
       /// right_based is something, which destincts x=y=5 from 1+2-3
       enum class op_side { right, left };
@@ -842,10 +856,7 @@ void parse(TokenStack &token_stack, INodeVisitor &visitor) {
         binop->left = left_expr;
         delete node_at(-2);
         if (parent_new == nullptr) {
-          nodes.pop_back();
-          nodes.pop_back();
-          nodes.pop_back();
-          nodes.push_back(binop);
+          pop_x_and_push(3, binop);
         } else {
           nodes.pop_back();
           nodes.pop_back();
@@ -859,22 +870,9 @@ void parse(TokenStack &token_stack, INodeVisitor &visitor) {
       };
       const auto set_un_op_left_by_priority = [&](NodeUnOp *unop) {
         delete node_at(-2);
-        nodes.pop_back();
-        nodes.pop_back();
-        nodes.push_back(unop);
+        pop_x_and_push(2, unop);
       };
 
-      /// x=x
-      /// =
-      ///  x
-      ///  x
-      ///
-      /// x=x__=5__
-      /// =
-      ///  x
-      ///  =
-      ///   x
-      ///   5
       if (is_bin_op_with(Token::ASSIGN)) {
         auto *binop = new NodeAssign(nullptr, static_cast<NodeExpr *>(node_at(-1)));
         set_bin_op_left_by_priority(binop, op_side::left);
@@ -998,11 +996,14 @@ int main() {
   run_parser_test("011");
   run_parser_test("012");
   run_parser_test("013");
+  run_parser_test("014");
+  run_parser_test("015"); // while with no {}, just statement
+  run_parser_test("016"); // while, then several statements
 
   {
     std::cout << "SAMPLE:\n";
     TokenStack stack;
-    tokenize_string("x=(y=2)y=2", stack);
+    tokenize_string("while(1){3;}while(1)3;", stack);
     NodeVisitorOut visitor(std::cout, false);
     parse(stack, visitor);
   }
